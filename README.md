@@ -59,3 +59,5 @@ go build cmd/server/main.go
 
 ./main --help # for more options
 ```
+
+> P/S: Still not be able to really ads block :<

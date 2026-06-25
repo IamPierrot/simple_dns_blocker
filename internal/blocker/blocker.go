@@ -9,13 +9,13 @@ import (
 )
 
 type Blocker struct {
-	mu      sync.RWMutex
-	domains map[string]struct{}
+	mu   sync.RWMutex
+	trie *Trie
 }
 
 func NewBlocker() *Blocker {
 	return &Blocker{
-		domains: make(map[string]struct{}),
+		trie: nil,
 	}
 }
 
@@ -25,19 +25,7 @@ func (b *Blocker) IsBlocked(domain string) bool {
 	defer b.mu.RUnlock()
 
 	domain = strings.ToLower(domain)
-
-	if _, exists := b.domains[domain]; exists {
-		return true
-	}
-
-	// (Subdomain)
-	for blocked := range b.domains {
-		if strings.HasSuffix(domain, "."+blocked) {
-			return true
-		}
-	}
-
-	return false
+	return b.trie.IsBlocked(domain)
 }
 
 func (b *Blocker) Load(path string) error {
@@ -47,8 +35,10 @@ func (b *Blocker) Load(path string) error {
 	}
 	defer file.Close()
 
-	newDomains := make(map[string]struct{})
 	scanner := bufio.NewScanner(file)
+
+	var cnt uint
+	newTrie := NewTrie()
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -64,7 +54,8 @@ func (b *Blocker) Load(path string) error {
 			domain = parts[0]
 		}
 
-		newDomains[strings.ToLower(domain)] = struct{}{}
+		newTrie.Insert(domain)
+		cnt += 1
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -72,9 +63,9 @@ func (b *Blocker) Load(path string) error {
 	}
 
 	b.mu.Lock()
-	b.domains = newDomains
+	b.trie = newTrie
 	b.mu.Unlock()
 
-	fmt.Printf("[Blocker] Load (%d) domains from config successfully\n", len(newDomains))
+	fmt.Printf("[Blocker] Load (%d) domains from config successfully\n", cnt)
 	return nil
 }
