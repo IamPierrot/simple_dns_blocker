@@ -7,6 +7,7 @@ import (
 
 func createBlocker(size int) *Blocker {
 	b := NewBlocker()
+	b.trie = NewTrie()
 
 	for i := range size {
 		b.trie.Insert(fmt.Sprintf("ads%d.example.com", i))
