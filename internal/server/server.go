@@ -21,7 +21,7 @@ type Server struct {
 
 func New(addr string, port uint) *Server {
 	blocker := blocker.NewBlocker()
-	blocker.Load("/cmd/config/blocklist.txt")
+	blocker.Load("./cmd/config/blocklist")
 
 	return &Server{
 		conn:      nil,
@@ -120,8 +120,6 @@ func (s *Server) HandleDNSRequest(req []byte) []byte {
 		return dns.BuildErrorResponse(req, 2)
 	}
 
-	// Tự động phân tích TTL từ phản hồi.
-	// Nếu parse lỗi (gói tin dị dạng), thiết lập mặc định là 60 giây.
 	ttl, err := dns.ParseTTL(resp)
 	if err != nil {
 		ttl = 60
