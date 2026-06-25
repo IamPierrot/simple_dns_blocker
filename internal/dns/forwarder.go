@@ -11,14 +11,12 @@ type Forwarder struct {
 	Upstream string
 }
 
-// NewForwarder khởi tạo một Forwarder mới
 func NewForwarder(upstream string) *Forwarder {
 	return &Forwarder{
 		Upstream: upstream,
 	}
 }
 
-// Query chuyển tiếp gói tin DNS nguyên bản tới upstream và trả về kết quả
 func (f *Forwarder) Query(req []byte) ([]byte, error) {
 	conn, err := net.Dial("udp", f.Upstream)
 	if err != nil {
@@ -32,7 +30,6 @@ func (f *Forwarder) Query(req []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to set deadline: %w", err)
 	}
 
-	// Gửi gói tin request gốc lên upstream
 	_, err = conn.Write(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request to upstream: %w", err)
