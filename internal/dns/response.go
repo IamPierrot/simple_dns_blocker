@@ -1,163 +1,208 @@
 package dns
 
 import (
+	"encoding/binary"
+	"fmt"
 	"net"
 )
 
-// BuildNXDomain trả về lỗi Non-Existent Domain (RCODE=3)
+func extractQuestion(req []byte) ([]byte, error) {
+	if len(req) < 12 {
+		return nil, fmt.Errorf("invalid dns packet")
+	}
+
+	pos := 12
+
+	for {
+		if pos >= len(req) {
+			return nil, fmt.Errorf("invalid qname")
+		}
+
+		l := int(req[pos])
+		pos++
+
+		if l == 0 {
+			break
+		}
+
+		// compression pointer
+		if l&0xC0 == 0xC0 {
+			if pos >= len(req) {
+				return nil, fmt.Errorf("invalid compression pointer")
+			}
+
+			pos++
+			break
+		}
+
+		pos += l
+
+		if pos > len(req) {
+			return nil, fmt.Errorf("invalid label length")
+		}
+	}
+
+	// QTYPE + QCLASS
+	pos += 4
+
+	if pos > len(req) {
+		return nil, fmt.Errorf("invalid question")
+	}
+
+	return req[12:pos], nil
+}
+
+func buildFlags(req []byte, rcode byte) (byte, byte) {
+	flags := binary.BigEndian.Uint16(req[2:4])
+
+	rd := flags & 0x0100
+
+	respFlags := uint16(0x8000) // QR=1
+	respFlags |= rd             // copy RD
+	respFlags |= uint16(rcode)
+
+	return byte(respFlags >> 8), byte(respFlags)
+}
+
 func BuildNXDomain(req []byte) []byte {
+	question, err := extractQuestion(req)
+	if err != nil {
+		return nil
+	}
+
 	resp := make([]byte, 0, 512)
 
-	// Transaction ID
 	resp = append(resp, req[0], req[1])
 
-	// Flags: QR=1 (Response), Opcode=0, AA=0, TC=0, RD=1, RA=0, Z=0, RCODE=3 (NXDOMAIN)
-	resp = append(resp, 0x81, 0x83)
+	f1, f2 := buildFlags(req, 3)
+	resp = append(resp, f1, f2)
 
-	// QDCOUNT
 	resp = append(resp, req[4], req[5])
 
-	// ANCOUNT, NSCOUNT, ARCOUNT đều bằng 0
-	resp = append(resp, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+	// ANCOUNT
+	resp = append(resp, 0x00, 0x00)
 
-	// Copy Question Section
-	if len(req) > 12 {
-		resp = append(resp, req[12:]...)
-	}
+	// NSCOUNT
+	resp = append(resp, 0x00, 0x00)
+
+	// ARCOUNT
+	resp = append(resp, 0x00, 0x00)
+
+	resp = append(resp, question...)
 
 	return resp
 }
 
-// BuildARecord tạo gói tin phản hồi thành công (NOERROR) chứa địa chỉ IPv4
-func BuildARecord(req []byte, ip net.IP) []byte {
-	resp := make([]byte, 0, 512)
-
-	// Transaction ID
-	resp = append(resp, req[0], req[1])
-
-	// Flags: QR=1, RD=1, RA=0, RCODE=0 (NOERROR)
-	resp = append(resp, 0x81, 0x80)
-
-	// QDCOUNT
-	resp = append(resp, req[4], req[5])
-
-	// ANCOUNT (1 Answer)
-	resp = append(resp, 0x00, 0x01)
-
-	// NSCOUNT (0), ARCOUNT (0)
-	resp = append(resp, 0x00, 0x00, 0x00, 0x00)
-
-	// Copy Question Section
-	if len(req) > 12 {
-		resp = append(resp, req[12:]...)
-	}
-
-	// --- Answer Section ---
-
-	// NAME: Sử dụng Message Compression (Pointer) trỏ về offset 12 (0x0C) của byte đầu tiên trong Question
-	// Công thức: 11000000 00001100 = 0xC00C
-	resp = append(resp, 0xc0, 0x0c)
-
-	// TYPE: A (0x00, 0x01)
-	resp = append(resp, 0x00, 0x01)
-
-	// CLASS: IN (0x00, 0x01)
-	resp = append(resp, 0x00, 0x01)
-
-	// TTL: 60 giây (4 bytes)
-	resp = append(resp, 0x00, 0x00, 0x00, 0x3c)
-
-	// RDLENGTH: 4 bytes cho địa chỉ IPv4
-	resp = append(resp, 0x00, 0x04)
-
-	// RDATA: Địa chỉ IP
-	// net.IP.To4() đảm bảo trích xuất đúng 4 byte IPv4 kể cả khi lưu dưới dạng IPv6-mapped
-	ipv4 := ip.To4()
-	if ipv4 != nil {
-		resp = append(resp, ipv4...)
-	} else {
-		// Fallback nếu IP không hợp lệ: trả về 0.0.0.0
-		resp = append(resp, 0, 0, 0, 0)
-	}
-
-	return resp
-}
-
-// BuildAAAARecord tạo gói tin phản hồi thành công chứa địa chỉ IPv6
-func BuildAAAARecord(req []byte, ip net.IP) []byte {
-	resp := make([]byte, 0, 512)
-
-	// 1. Transaction ID
-	resp = append(resp, req[0], req[1])
-
-	// 2. Flags: QR=1, RD=1, RA=0, RCODE=0 (NOERROR)
-	resp = append(resp, 0x81, 0x80)
-
-	// 3. QDCOUNT
-	resp = append(resp, req[4], req[5])
-
-	// 4. ANCOUNT (1 Answer)
-	resp = append(resp, 0x00, 0x01)
-
-	// 5. NSCOUNT (0), ARCOUNT (0)
-	resp = append(resp, 0x00, 0x00, 0x00, 0x00)
-
-	// 6. Copy Question Section (Safeguard check)
-	if len(req) > 12 {
-		resp = append(resp, req[12:]...)
-	}
-
-	// --- Answer Section ---
-
-	// NAME: Sử dụng Message Compression trỏ về offset 12
-	resp = append(resp, 0xc0, 0x0c)
-
-	// TYPE: AAAA (Decimal: 28 -> Hex: 0x00, 0x1c)
-	resp = append(resp, 0x00, 0x1c)
-
-	// CLASS: IN (0x00, 0x01)
-	resp = append(resp, 0x00, 0x01)
-
-	// TTL: 60 giây (4 bytes)
-	resp = append(resp, 0x00, 0x00, 0x00, 0x3c)
-
-	// RDLENGTH: 16 bytes cho địa chỉ IPv6 (0x00, 0x10)
-	resp = append(resp, 0x00, 0x10)
-
-	// RDATA: Xử lý địa chỉ IPv6 (16 bytes)
-	// Hàm To16() của net.IP sẽ chuyển đổi an toàn thành mảng 16 bytes
-	ipv6 := ip.To16()
-	if ipv6 != nil {
-		resp = append(resp, ipv6...)
-	} else {
-		// Fallback an toàn nếu IP đầu vào không hợp lệ: trả về địa chỉ "::" (16 bytes 0)
-		resp = append(resp, make([]byte, 16)...)
-	}
-
-	return resp
-}
-
-// BuildErrorResponse tạo gói tin phản hồi lỗi tùy chỉnh (ví dụ: SERVFAIL, FORMERR)
 func BuildErrorResponse(req []byte, rcode byte) []byte {
+	question, err := extractQuestion(req)
+	if err != nil {
+		return nil
+	}
+
 	resp := make([]byte, 0, 512)
 
-	// Transaction ID
 	resp = append(resp, req[0], req[1])
 
-	// Flags: QR=1, RD=1, và gắn mã RCODE (chỉ lấy 4 bit cuối để an toàn)
-	flag2 := byte(0x80) | (rcode & 0x0F)
-	resp = append(resp, 0x81, flag2)
+	f1, f2 := buildFlags(req, rcode)
+	resp = append(resp, f1, f2)
 
-	// QDCOUNT
 	resp = append(resp, req[4], req[5])
 
-	// ANCOUNT, NSCOUNT, ARCOUNT đều bằng 0
-	resp = append(resp, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+	resp = append(resp,
+		0x00, 0x00,
+		0x00, 0x00,
+		0x00, 0x00,
+	)
 
-	// Copy Question Section
-	if len(req) > 12 {
-		resp = append(resp, req[12:]...)
+	resp = append(resp, question...)
+
+	return resp
+}
+
+func BuildARecord(req []byte, ip net.IP) []byte {
+	question, err := extractQuestion(req)
+	if err != nil {
+		return nil
 	}
+
+	resp := make([]byte, 0, 512)
+
+	resp = append(resp, req[0], req[1])
+
+	f1, f2 := buildFlags(req, 0)
+	resp = append(resp, f1, f2)
+
+	resp = append(resp, req[4], req[5])
+
+	// ANCOUNT = 1
+	resp = append(resp, 0x00, 0x01)
+
+	// NSCOUNT = 0
+	resp = append(resp, 0x00, 0x00)
+
+	// ARCOUNT = 0
+	resp = append(resp, 0x00, 0x00)
+
+	resp = append(resp, question...)
+
+	resp = append(resp,
+		0xC0, 0x0C, // NAME pointer
+		0x00, 0x01, // TYPE A
+		0x00, 0x01, // CLASS IN
+		0x00, 0x00, 0x00, 0x3C, // TTL
+		0x00, 0x04, // RDLENGTH
+	)
+
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		ipv4 = net.IPv4zero
+	}
+
+	resp = append(resp, ipv4...)
+
+	return resp
+}
+
+func BuildAAAARecord(req []byte, ip net.IP) []byte {
+	question, err := extractQuestion(req)
+	if err != nil {
+		return nil
+	}
+
+	resp := make([]byte, 0, 512)
+
+	resp = append(resp, req[0], req[1])
+
+	f1, f2 := buildFlags(req, 0)
+	resp = append(resp, f1, f2)
+
+	resp = append(resp, req[4], req[5])
+
+	// ANCOUNT = 1
+	resp = append(resp, 0x00, 0x01)
+
+	// NSCOUNT = 0
+	resp = append(resp, 0x00, 0x00)
+
+	// ARCOUNT = 0
+	resp = append(resp, 0x00, 0x00)
+
+	resp = append(resp, question...)
+
+	resp = append(resp,
+		0xC0, 0x0C, // NAME pointer
+		0x00, 0x1C, // TYPE AAAA
+		0x00, 0x01, // CLASS IN
+		0x00, 0x00, 0x00, 0x3C, // TTL
+		0x00, 0x10, // RDLENGTH
+	)
+
+	ipv6 := ip.To16()
+	if ipv6 == nil {
+		ipv6 = make([]byte, 16)
+	}
+
+	resp = append(resp, ipv6...)
 
 	return resp
 }
