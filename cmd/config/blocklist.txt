@@ -1,0 +1,44 @@
+# DNS Blocklist
+
+# ===== Ad Networks =====
+
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+adservice.google.com
+ad.doubleclick.net
+
+# ===== Tracking =====
+
+google-analytics.com
+ssl.google-analytics.com
+analytics.google.com
+stats.g.doubleclick.net
+
+# ===== YouTube Ads =====
+
+youtubeads.com
+googlevideo.com
+pagead.l.doubleclick.net
+
+# ===== Facebook Tracking =====
+
+connect.facebook.net
+graph.facebook.com
+
+# ===== Microsoft Ads =====
+
+ads.microsoft.com
+bingads.microsoft.com
+
+# ===== Hosts file format =====
+
+0.0.0.0 ads.example.com
+0.0.0.0 tracker.example.com
+127.0.0.1 malicious.example.com
+
+# ===== Comments =====
+
+# Các dòng bắt đầu bằng # sẽ bị bỏ qua
+
+# Domain sẽ được chuyển thành lowercase tự động
