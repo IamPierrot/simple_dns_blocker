@@ -90,7 +90,18 @@ func (s *Server) HandleDNSRequest(req []byte) []byte {
 
 	if s.blocker.IsBlocked(q.Name) {
 		fmt.Printf("[BLOCK] Từ chối truy vấn tới: %s (Type: %d)\n", q.Name, q.Type)
-		return dns.BuildNXDomain(req)
+
+		switch q.Type {
+		case 1:
+			// Type A: Yêu cầu phân giải IPv4 -> Trả về 0.0.0.0
+			return dns.BuildARecord(req, net.ParseIP("0.0.0.0"))
+		case 28:
+			// Type AAAA: Yêu cầu phân giải IPv6 -> Trả về ::
+			return dns.BuildAAAARecord(req, net.ParseIP("::"))
+		default:
+			// Với các loại truy vấn khác (CNAME, TXT, HTTPS, MX...),
+			return dns.BuildNXDomain(req)
+		}
 	}
 
 	if cachedData, ok := s.dnsCache.Get(q.Name, q.Type); ok {
