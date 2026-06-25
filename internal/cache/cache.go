@@ -17,14 +17,12 @@ type Cache struct {
 	entries map[string]CacheEntry
 }
 
-// NewCache khởi tạo một đối tượng Cache mới
 func NewCache() *Cache {
 	return &Cache{
 		entries: make(map[string]CacheEntry),
 	}
 }
 
-// generateKey tạo khóa duy nhất kết hợp giữa tên miền và loại truy vấn
 func generateKey(domain string, qtype uint16) string {
 	return fmt.Sprintf("%s_%d", domain, qtype)
 }
@@ -42,7 +40,7 @@ func (c *Cache) Get(domain string, qtype uint16) ([]byte, bool) {
 	}
 
 	if time.Now().After(entry.ExpiresAt) {
-		delete(c.entries, key)
+		c.Delete(domain, qtype)
 		return nil, false
 	}
 
@@ -61,4 +59,13 @@ func (c *Cache) Set(domain string, qtype uint16, data []byte, ttl uint32) {
 		// Cộng thời gian hiện tại với TTL để ra thời điểm hết hạn
 		ExpiresAt: time.Now().Add(time.Duration(ttl) * time.Second),
 	}
+}
+
+func (c *Cache) Delete(domain string, qtype uint16) {
+	key := generateKey(domain, qtype)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.entries, key)
 }
